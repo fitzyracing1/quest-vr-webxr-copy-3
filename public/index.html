@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quest WebXR World</title>
+    <style>
+      body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+      #hud {
+        position: fixed; top: 12px; left: 12px; z-index: 10;
+        background: rgba(0,0,0,0.5); color: #fff; padding: 8px 10px; border-radius: 8px;
+      }
+      #hud small { opacity: 0.8; }
+    </style>
+    <!-- A-Frame core -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- THREE.js for raycasting (bundled with A-Frame, expose globally) -->
+    <script>
+      if (!window.THREE) {
+        // THREE is bundled with A-Frame, but we make sure it's available
+        document.addEventListener('aframe-loaded', () => {
+          window.THREE = AFRAME.THREE;
+        });
+      }
+    </script>
+    <!-- Environment component for quick open-world feel -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-environment-component@1.3.2/dist/aframe-environment-component.min.js"></script>
+    <!-- Optional extras (movement-controls) -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.0.0/dist/aframe-extras.min.js"></script>
+    <!-- Socket.IO client served by our backend -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body>
+    <div id="hud">
+      <div><strong>Online:</strong> <span id="onlineCount">0</span></div>
+      <div><strong>Easter Eggs Found:</strong> <span id="eggsFound">0</span> / 5</div>
+      <div><strong>Block Color:</strong> 
+        <button id="colorRed" style="background: #F44; color: #fff; padding: 2px 6px; cursor: pointer;">Red</button>
+        <button id="colorGreen" style="background: #4F4; color: #000; padding: 2px 6px; cursor: pointer;">Green</button>
+        <button id="colorBlue" style="background: #44F; color: #fff; padding: 2px 6px; cursor: pointer;">Blue</button>
+        <button id="colorYellow" style="background: #FF4; color: #000; padding: 2px 6px; cursor: pointer;">Yellow</button>
+        <button id="scanBtn" style="background: #9C27B0; color: #fff; padding: 2px 6px; cursor: pointer; margin-left: 10px;">🔍 Scan</button>
+      </div>
+      <small>Click to place blocks | Middle-click to remove | Shift+Click Easter eggs to collect</small>
+      <div id="eggsList" style="font-size: 0.8em; margin-top: 5px; max-height: 80px; overflow-y: auto;"></div>
+    </div>
+    <a-scene renderer="antialias: true" vr-mode-ui="enabled: true">
+      <!-- Player rig with movement controls (sticks on Quest) -->
+      <a-entity id="rig" movement-controls="fly: false" position="0 1.6 0">
+        <a-entity camera="near: 0.1" look-controls id="camera" raycaster="far: 100; objects: .buildable"></a-entity>
+        
+        <!-- VR Controllers -->
+        <a-entity id="leftHand" 
+          oculus-touch-controls="hand: left" 
+          laser-controls="hand: left"
+          raycaster="far: 100; objects: .buildable"></a-entity>
+        
+        <a-entity id="rightHand" 
+          oculus-touch-controls="hand: right" 
+          laser-controls="hand: right"
+          raycaster="far: 100; objects: .buildable"></a-entity>
+      </a-entity>
+
+      <!-- Lighting -->
+      <a-entity light="type: directional; color: #fff; intensity: 0.8" position="1 3 1"></a-entity>
+      <a-entity light="type: ambient; color: #BBB"></a-entity>
+
+      <!-- Quickly generate an open-world style environment -->
+      <a-entity environment="preset: forest; ground: hills; groundTexture: walkernoise; skyType: atmosphere; lighting: distant; playArea: 5"></a-entity>
+
+      <!-- A landmark to orient -->
+      <a-box position="0 1 -3" depth="1" height="1" width="1" color="#4CC3D9" class="buildable"></a-box>
+      
+      <!-- Apartment Building -->
+      <a-entity id="apartment-building" position="10 0 -10">
+        <!-- Main Building Structure (3 stories tall) -->
+        <a-box id="building-exterior" position="0 3 0" width="8" height="6" depth="6" color="#8B7355" class="buildable"></a-box>
+        
+        <!-- Roof -->
+        <a-box position="0 6.2 0" width="8.5" height="0.4" depth="6.5" color="#4A4A4A"></a-box>
+        
+        <!-- Windows - Front Face -->
+        <a-box position="-2.5 4 3.1" width="1" height="1" depth="0.1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        <a-box position="0 4 3.1" width="1" height="1" depth="0.1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        <a-box position="2.5 4 3.1" width="1" height="1" depth="0.1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        
+        <a-box position="-2.5 2 3.1" width="1" height="1" depth="0.1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        <a-box position="2.5 2 3.1" width="1" height="1" depth="0.1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        
+        <!-- Windows - Side Face -->
+        <a-box position="4.1 4 0" width="0.1" height="1" depth="1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        <a-box position="4.1 2 0" width="0.1" height="1" depth="1" color="#87CEEB" material="opacity: 0.6; transparent: true"></a-box>
+        
+        <!-- Door Frame -->
+        <a-box position="0 1 3.1" width="1.5" height="2.2" depth="0.2" color="#654321"></a-box>
+        
+        <!-- Door (clickable/interactable) -->
+        <a-box id="apartment-door" position="0 1 3.2" width="1.3" height="2" depth="0.1" color="#8B4513" class="door" data-state="closed"></a-box>
+        <a-sphere position="0.5 1 3.25" radius="0.08" color="#FFD700"></a-sphere>
+        
+        <!-- Door Sign -->
+        <a-text value="APARTMENTS" position="0 2.5 3.3" align="center" color="#FFD700" width="4"></a-text>
+        
+        <!-- Interior Space (initially invisible) -->
+        <a-entity id="apartment-interior" visible="false">
+          <!-- Entrance Hall -->
+          <a-box position="0 1.5 1" width="4" height="3" depth="2" color="#D2B48C" opacity="0"></a-box>
+          <a-plane position="0 0.01 1" width="4" height="2" rotation="-90 0 0" color="#8B7355" class="buildable"></a-plane>
+          <a-plane position="0 3 1" width="4" height="2" rotation="90 0 0" color="#FFFACD"></a-plane>
+          
+          <!-- Back wall -->
+          <a-plane position="0 1.5 0" width="4" height="3" rotation="0 0 0" color="#DEB887"></a-plane>
+          
+          <!-- Side walls -->
+          <a-plane position="-2 1.5 1" width="2" height="3" rotation="0 90 0" color="#D2B48C"></a-plane>
+          <a-plane position="2 1.5 1" width="2" height="3" rotation="0 -90 0" color="#D2B48C"></a-plane>
+          
+          <!-- Furniture -->
+          <a-box position="-1.5 0.5 0.5" width="0.6" height="1" depth="0.6" color="#654321"></a-box>
+          <a-box position="1.5 0.3 0.5" width="1" height="0.6" depth="0.5" color="#8B4513"></a-box>
+          
+          <!-- Lighting inside -->
+          <a-entity light="type: point; intensity: 0.8; color: #FFE4B5" position="0 2.5 1"></a-entity>
+          
+          <!-- Stairs to upper floors -->
+          <a-box position="-1.5 0.3 1.5" width="1" height="0.6" depth="0.5" color="#A0522D" class="buildable"></a-box>
+          <a-text value="STAIRS" position="-1.5 1 1.5" align="center" color="#000" width="2"></a-text>
+        </a-entity>
+        
+        <!-- Balconies -->
+        <a-box position="0 4 3.5" width="6" height="0.2" depth="1" color="#696969" opacity="0.8"></a-box>
+        <a-box position="-3 4.5 3.5" width="0.2" height="1" depth="1" color="#696969"></a-box>
+        <a-box position="3 4.5 3.5" width="0.2" height="1" depth="1" color="#696969"></a-box>
+      </a-entity>
+      
+      <!-- Container for placed blocks -->
+      <a-entity id="blocks-container"></a-entity>
+    </a-scene>
+  </body>
+</html>
